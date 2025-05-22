@@ -22,20 +22,62 @@ class _MyAppState extends State<MyApp> {
     initPlatformState();
   }
 
-  // Platform messages are asynchronous, so we initialize in an async method.
   Future<void> initPlatformState() async {
     const appId = GoogleCastDiscoveryCriteria.kDefaultApplicationId;
+    print("appId = $appId");
     GoogleCastOptions? options;
     if (Platform.isIOS) {
+      print("Initializing for iOS platform");
       options = IOSGoogleCastOptions(
         GoogleCastDiscoveryCriteriaInitialize.initWithApplicationID(appId),
       );
     } else if (Platform.isAndroid) {
+      print("Initializing for Android platform");
+      print("initWithApplicationID");
       options = GoogleCastOptionsAndroid(
         appId: appId,
       );
+      print("initWithApplicationID end");
     }
-    GoogleCastContext.instance.setSharedInstanceWithOptions(options!);
+    print("setSharedInstanceWithOptions");
+    try {
+      GoogleCastContext.instance.setSharedInstanceWithOptions(options!);
+      print("setSharedInstanceWithOptions end");
+    } catch (e) {
+      print("Error setting shared instance: $e");
+      return;
+    }
+
+    // Listen to connection state changes
+    GoogleCastSessionManager.instance.currentSessionStream.listen((session) {
+      print("Connection state changed: ${GoogleCastSessionManager.instance.connectionState}");
+      if (session != null) {
+        print("Connected to device: ${session.device?.friendlyName}");
+      }
+    });
+
+    // Listen to discovered devices
+    GoogleCastDiscoveryManager.instance.devicesStream.listen((devices) {
+      print("Found ${devices.length} devices:");
+      for (var device in devices) {
+        print("Device: ${device.friendlyName} (${device.modelName ?? 'Unknown model'})");
+      }
+    });
+
+    print("startDiscovery");
+    try {
+      GoogleCastDiscoveryManager.instance.startDiscovery();
+      print("startDiscovery end");
+    } catch (e) {
+      print("Error starting discovery: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    // Stop discovery when widget is disposed
+    GoogleCastDiscoveryManager.instance.stopDiscovery();
+    super.dispose();
   }
 
   @override
