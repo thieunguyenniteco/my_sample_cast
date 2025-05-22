@@ -25,6 +25,16 @@ class _MyAppState extends State<MyApp> {
   Future<void> initPlatformState() async {
     const appId = GoogleCastDiscoveryCriteria.kDefaultApplicationId;
     print("appId = $appId");
+    
+    // Check network status
+    if (Platform.isAndroid) {
+      print("Checking Android network permissions...");
+      // Android permissions are in manifest
+    } else if (Platform.isIOS) {
+      print("Checking iOS network permissions...");
+      // iOS permissions are in Info.plist
+    }
+    
     GoogleCastOptions? options;
     if (Platform.isIOS) {
       print("Initializing for iOS platform");
@@ -39,10 +49,15 @@ class _MyAppState extends State<MyApp> {
       );
       print("initWithApplicationID end");
     }
+    
     print("setSharedInstanceWithOptions");
     try {
       GoogleCastContext.instance.setSharedInstanceWithOptions(options!);
       print("setSharedInstanceWithOptions end");
+      
+      // Remove isDiscovering check since it's not available
+      print("Starting device discovery...");
+      
     } catch (e) {
       print("Error setting shared instance: $e");
       return;
@@ -53,23 +68,41 @@ class _MyAppState extends State<MyApp> {
       print("Connection state changed: ${GoogleCastSessionManager.instance.connectionState}");
       if (session != null) {
         print("Connected to device: ${session.device?.friendlyName}");
+      } else {
+        print("No active session");
       }
     });
 
-    // Listen to discovered devices
+    // Listen to discovered devices with more detailed logging
     GoogleCastDiscoveryManager.instance.devicesStream.listen((devices) {
-      print("Found ${devices.length} devices:");
-      for (var device in devices) {
-        print("Device: ${device.friendlyName} (${device.modelName ?? 'Unknown model'})");
+      print("=== Device Discovery Update ===");
+      print("Total devices found: ${devices.length}");
+      if (devices.isEmpty) {
+        print("No devices found. Please check:");
+        print("1. TV is turned on and in range");
+        print("2. TV and phone are on the same WiFi network");
+        print("3. Cast feature is enabled on TV");
+      } else {
+        for (var device in devices) {
+          print("Device details:");
+          print("- Name: ${device.friendlyName}");
+          print("- Model: ${device.modelName ?? 'Unknown'}");
+          // Remove deviceId and status since they're not available
+        }
       }
+      print("============================");
     });
 
-    print("startDiscovery");
+    print("Starting device discovery...");
     try {
+      // Remove isDiscovering check
+      print("startDiscovery");
       GoogleCastDiscoveryManager.instance.startDiscovery();
       print("startDiscovery end");
+      
     } catch (e) {
-      print("Error starting discovery: $e");
+      print("Error during discovery: $e");
+      print("Error details: ${e.toString()}");
     }
   }
 
@@ -88,38 +121,30 @@ class _MyAppState extends State<MyApp> {
           Scaffold(
               floatingActionButton: Container(
                 margin: const EdgeInsets.only(bottom: 40),
-                child: StreamBuilder(
-                    stream:
-                        GoogleCastSessionManager.instance.currentSessionStream,
-                    builder: (context, snapshot) {
-                      final isConnected =
-                          GoogleCastSessionManager.instance.connectionState ==
-                              GoogleCastConnectState.ConnectionStateConnected;
-                      return Visibility(
-                        visible: isConnected,
-                        child: FloatingActionButton(
-                          onPressed: _insertQueueItemAndPlay,
-                          child: const Icon(Icons.add),
-                        ),
-                      );
-                    }),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  FloatingActionButton(
+                    onPressed: _insertQueueItemAndPlay,
+                    child: const Icon(Icons.add),
+                  ),
+                  const SizedBox(width: 10),
+                  FloatingActionButton(
+                    onPressed: _startDiscovery,
+                    child: const Icon(Icons.refresh),
+                  ),
+                ]),
               ),
               appBar: AppBar(
                 title: const Text('Plugin example app'),
                 actions: [
                   StreamBuilder<GoogleCastSession?>(
-                      stream: GoogleCastSessionManager
-                          .instance.currentSessionStream,
+                      stream: GoogleCastSessionManager.instance.currentSessionStream,
                       builder: (context, snapshot) {
                         final bool isConnected =
                             GoogleCastSessionManager.instance.connectionState ==
                                 GoogleCastConnectState.ConnectionStateConnected;
                         return IconButton(
-                            onPressed: GoogleCastSessionManager
-                                .instance.endSessionAndStopCasting,
-                            icon: Icon(isConnected
-                                ? Icons.cast_connected
-                                : Icons.cast));
+                            onPressed: GoogleCastSessionManager.instance.endSessionAndStopCasting,
+                            icon: Icon(isConnected ? Icons.cast_connected : Icons.cast));
                       })
                 ],
               ),
@@ -370,5 +395,10 @@ class _MyAppState extends State<MyApp> {
       return null;
     }
     return metadata.images!.first.url.toString();
+  }
+
+  void _startDiscovery() {
+    print("Manually starting discovery...");
+    GoogleCastDiscoveryManager.instance.startDiscovery();
   }
 }
