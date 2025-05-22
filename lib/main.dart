@@ -1,122 +1,332 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_chrome_cast/lib.dart';
+import 'dart:async';
+import 'package:flutter_chrome_cast/widgets/mini_controller.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({Key? key}) : super(key: key);
 
-  // This widget is the root of your application.
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    initPlatformState();
+  }
+
+  // Platform messages are asynchronous, so we initialize in an async method.
+  Future<void> initPlatformState() async {
+    const appId = GoogleCastDiscoveryCriteria.kDefaultApplicationId;
+    GoogleCastOptions? options;
+    if (Platform.isIOS) {
+      options = IOSGoogleCastOptions(
+        GoogleCastDiscoveryCriteriaInitialize.initWithApplicationID(appId),
+      );
+    } else if (Platform.isAndroid) {
+      options = GoogleCastOptionsAndroid(
+        appId: appId,
+      );
+    }
+    GoogleCastContext.instance.setSharedInstanceWithOptions(options!);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      home: Stack(
+        children: [
+          Scaffold(
+              floatingActionButton: Container(
+                margin: const EdgeInsets.only(bottom: 40),
+                child: StreamBuilder(
+                    stream:
+                        GoogleCastSessionManager.instance.currentSessionStream,
+                    builder: (context, snapshot) {
+                      final isConnected =
+                          GoogleCastSessionManager.instance.connectionState ==
+                              GoogleCastConnectState.ConnectionStateConnected;
+                      return Visibility(
+                        visible: isConnected,
+                        child: FloatingActionButton(
+                          onPressed: _insertQueueItemAndPlay,
+                          child: const Icon(Icons.add),
+                        ),
+                      );
+                    }),
+              ),
+              appBar: AppBar(
+                title: const Text('Plugin example app'),
+                actions: [
+                  StreamBuilder<GoogleCastSession?>(
+                      stream: GoogleCastSessionManager
+                          .instance.currentSessionStream,
+                      builder: (context, snapshot) {
+                        final bool isConnected =
+                            GoogleCastSessionManager.instance.connectionState ==
+                                GoogleCastConnectState.ConnectionStateConnected;
+                        return IconButton(
+                            onPressed: GoogleCastSessionManager
+                                .instance.endSessionAndStopCasting,
+                            icon: Icon(isConnected
+                                ? Icons.cast_connected
+                                : Icons.cast));
+                      })
+                ],
+              ),
+              body: StreamBuilder<List<GoogleCastDevice>>(
+                stream: GoogleCastDiscoveryManager.instance.devicesStream,
+                builder: (context, snapshot) {
+                  final devices = snapshot.data ?? [];
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: ListView(
+                          children: [
+                            ...devices.map((device) {
+                              return ListTile(
+                                title: Text(device.friendlyName),
+                                subtitle: Text(device.modelName ?? ''),
+                                onTap: () => _loadQueue(device),
+                              );
+                            })
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              )),
+          const GoogleCastMiniController(),
+        ],
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  void _changeCurrentTime(double value) {
+    final seconds = GoogleCastRemoteMediaClient
+            .instance.mediaStatus?.mediaInformation?.duration?.inSeconds ??
+        0;
+    final position = (value * seconds).floor();
+    GoogleCastRemoteMediaClient.instance
+        .seek(GoogleCastMediaSeekOption(position: Duration(seconds: position)));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+  void _togglePLayPause() {
+    final isPlaying =
+        GoogleCastRemoteMediaClient.instance.mediaStatus?.playerState ==
+            CastMediaPlayerState.playing;
+    if (isPlaying) {
+      GoogleCastRemoteMediaClient.instance.pause();
+    } else {
+      GoogleCastRemoteMediaClient.instance.play();
+    }
+  }
+
+  void _loadMedia(GoogleCastDevice device) async {
+    await GoogleCastSessionManager.instance.startSessionWithDevice(device);
+
+    GoogleCastRemoteMediaClient.instance.loadMedia(
+      GoogleCastMediaInformationIOS(
+        contentId: '',
+        streamType: CastMediaStreamType.BUFFERED,
+        contentUrl: Uri.parse(
+            'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4'),
+        contentType: 'video/mp4',
+        metadata: GoogleCastTvShowMediaMetadata(
+          episode: 1,
+          season: 2,
+          seriesTitle: 'Big Buck Bunny',
+          originalAirDate: DateTime.now(),
+          images: [
+            GoogleCastImage(
+              url: Uri.parse(
+                  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'),
+              height: 480,
+              width: 854,
             ),
           ],
         ),
+        tracks: [
+          GoogleCastMediaTrack(
+            trackId: 0,
+            type: TrackType.TEXT,
+            trackContentId: Uri.parse(
+                    'https://raw.githubusercontent.com/felnanuke2/flutter_cast/master/example/assets/VEED-subtitles_Blender_Foundation_-_Elephants_Dream_1024.vtt')
+                .toString(),
+            trackContentType: 'text/vtt',
+            name: 'English',
+            language: RFC5646_LANGUAGE.PORTUGUESE_BRAZIL,
+            subtype: TextTrackType.SUBTITLES,
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      autoPlay: true,
+      playPosition: const Duration(seconds: 0),
+      playbackRate: 2,
+      activeTrackIds: [0],
     );
+  }
+
+  _loadQueue(GoogleCastDevice device) async {
+    await GoogleCastSessionManager.instance.startSessionWithDevice(device);
+    await GoogleCastRemoteMediaClient.instance.queueLoadItems(
+      [
+        GoogleCastQueueItem(
+          activeTrackIds: [0],
+          mediaInformation: GoogleCastMediaInformationIOS(
+            contentId: '0',
+            streamType: CastMediaStreamType.BUFFERED,
+            contentUrl: Uri.parse(
+                'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4'),
+            contentType: 'video/mp4',
+            metadata: GoogleCastMovieMediaMetadata(
+              title: 'The first Blender Open Movie from 2006',
+              studio: 'Blender Inc',
+              releaseDate: DateTime(2011),
+              subtitle:
+                  'Song : Raja Raja Kareja Mein Samaja\nAlbum : Raja Kareja Mein Samaja\nArtist : Radhe Shyam Rasia\nSinger : Radhe Shyam Rasia\nMusic Director : Sohan Lal, Dinesh Kumar\nLyricist : Vinay Bihari, Shailesh Sagar, Parmeshwar Premi\nMusic Label : T-Series',
+              images: [
+                GoogleCastImage(
+                  url: Uri.parse(
+                      'https://i.ytimg.com/vi_webp/gWw23EYM9VM/maxresdefault.webp'),
+                  height: 480,
+                  width: 854,
+                ),
+              ],
+            ),
+            tracks: [
+              GoogleCastMediaTrack(
+                trackId: 0,
+                type: TrackType.TEXT,
+                trackContentId: Uri.parse(
+                        'https://raw.githubusercontent.com/felnanuke2/flutter_cast/master/example/assets/VEED-subtitles_Blender_Foundation_-_Elephants_Dream_1024.vtt')
+                    .toString(),
+                trackContentType: 'text/vtt',
+                name: 'English',
+                language: RFC5646_LANGUAGE.PORTUGUESE_BRAZIL,
+                subtype: TextTrackType.SUBTITLES,
+              ),
+            ],
+          ),
+        ),
+        GoogleCastQueueItem(
+          preLoadTime: const Duration(seconds: 15),
+          mediaInformation: GoogleCastMediaInformationIOS(
+            contentId: '1',
+            streamType: CastMediaStreamType.BUFFERED,
+            contentUrl: Uri.parse(
+                'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'),
+            contentType: 'video/mp4',
+            metadata: GoogleCastMovieMediaMetadata(
+              title: 'Big Buck Bunny',
+              releaseDate: DateTime(2011),
+              studio: 'Vlc Media Player',
+              images: [
+                GoogleCastImage(
+                  url: Uri.parse(
+                      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'),
+                  height: 480,
+                  width: 854,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+      options: GoogleCastQueueLoadOptions(
+        startIndex: 0,
+        playPosition: const Duration(seconds: 30),
+      ),
+    );
+  }
+
+  void _previous() {
+    GoogleCastRemoteMediaClient.instance.queuePrevItem();
+  }
+
+  void _next() {
+    GoogleCastRemoteMediaClient.instance.queueNextItem();
+  }
+
+  void _insertQueueItem() {
+    GoogleCastRemoteMediaClient.instance.queueInsertItems(
+      [
+        GoogleCastQueueItem(
+          preLoadTime: const Duration(seconds: 15),
+          mediaInformation: GoogleCastMediaInformationIOS(
+            contentId: '3',
+            streamType: CastMediaStreamType.BUFFERED,
+            contentUrl: Uri.parse(
+                'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'),
+            contentType: 'video/mp4',
+            metadata: GoogleCastMovieMediaMetadata(
+              title: 'For Bigger Blazes',
+              subtitle:
+                  'Song : Raja Raja Kareja Mein Samaja\nAlbum : Raja Kareja Mein Samaja\nArtist : Radhe Shyam Rasia\nSinger : Radhe Shyam Rasia\nMusic Director : Sohan Lal, Dinesh Kumar\nLyricist : Vinay Bihari, Shailesh Sagar, Parmeshwar Premi\nMusic Label : T-Series',
+              releaseDate: DateTime(2011),
+              studio: 'T-Series Regional',
+              images: [
+                GoogleCastImage(
+                  url: Uri.parse(
+                      'https://i.ytimg.com/vi/Dr9C2oswZfA/maxresdefault.jpg'),
+                  height: 480,
+                  width: 854,
+                ),
+              ],
+            ),
+          ),
+        )
+      ],
+      beforeItemWithId: 2,
+    );
+  }
+
+  void _insertQueueItemAndPlay() {
+    GoogleCastRemoteMediaClient.instance.queueInsertItemAndPlay(
+      GoogleCastQueueItem(
+        preLoadTime: const Duration(seconds: 15),
+        mediaInformation: GoogleCastMediaInformationIOS(
+          contentId: '3',
+          streamType: CastMediaStreamType.BUFFERED,
+          contentUrl: Uri.parse(
+              'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'),
+          contentType: 'video/mp4',
+          metadata: GoogleCastMovieMediaMetadata(
+            title: 'For Bigger Blazes',
+            subtitle:
+                'Song : Raja Raja Kareja Mein Samaja\nAlbum : Raja Kareja Mein Samaja\nArtist : Radhe Shyam Rasia\nSinger : Radhe Shyam Rasia\nMusic Director : Sohan Lal, Dinesh Kumar\nLyricist : Vinay Bihari, Shailesh Sagar, Parmeshwar Premi\nMusic Label : T-Series',
+            releaseDate: DateTime(2011),
+            studio: 'T-Series Regional',
+            images: [
+              GoogleCastImage(
+                url: Uri.parse(
+                    'https://i.ytimg.com/vi/Dr9C2oswZfA/maxresdefault.jpg'),
+                height: 480,
+                width: 854,
+              ),
+            ],
+          ),
+        ),
+      ),
+      beforeItemWithId: 2,
+    );
+  }
+
+  String? _getImage(GoogleCastMediaMetadata? metadata) {
+    if (metadata == null) {
+      return null;
+    }
+    if (metadata.images?.isEmpty ?? true) {
+      return null;
+    }
+    return metadata.images!.first.url.toString();
   }
 }
